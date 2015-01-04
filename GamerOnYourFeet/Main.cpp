@@ -4,9 +4,36 @@
 #include <string>
 #define WINVER 0x0500
 #include <windows.h>
+#include <chrono>
 
 using namespace cv;
 using namespace std;
+
+//make a vector of vectors and fill each entry with a certain element
+void makevectorvector(int width, int height, int fillwiththis, vector<vector<int>> &destinationvectorvector)
+{
+	for (int i = 0; i < width; ++i)
+	{
+		vector <int> tmp;
+		destinationvectorvector.push_back(tmp);
+		for (int j = 0; j < height; ++j)
+		{
+			destinationvectorvector[i].push_back(fillwiththis);
+		}
+	}
+}
+void makevectorvector(int width, int height, bool fillwiththis, vector<vector<bool>> &destinationvectorvector)
+{
+	for (int i = 0; i < width; ++i)
+	{
+		vector <bool> tmp;
+		destinationvectorvector.push_back(tmp);
+		for (int j = 0; j < height; ++j)
+		{
+			destinationvectorvector[i].push_back(fillwiththis);
+		}
+	}
+}
 
 //functions for pressing and releasing keys
 void presskey(int keycode)
@@ -50,6 +77,159 @@ void releasekey(int keycode)
 	}
 }
 
+//check if a color is in the range
+bool colorinGBRrange(Vec3b color, vector<int> rangevector)
+{
+	if ((color[0] >= rangevector[0]) && (color[0] <= rangevector[1]) //if the color's in the g range
+		&& (color[1] >= rangevector[2]) && (color[1] <= rangevector[3]) //and the b range
+		&& (color[2] >= rangevector[4]) && (color[2] <= rangevector[5])) //and the r range
+		return true;
+	else return false;
+}
+Mat getvideoframe(Mat &imgdestination)
+{
+	VideoCapture cap(0); //capture the video from web cam
+	if (!cap.isOpened())  // if not success
+	{
+		cout << "Cannot open the web cam" << endl;
+	}
+	bool bSuccess = cap.read(imgdestination); // read a new frame from video
+	if (!bSuccess) //if not success
+	{
+		cout << "Cannot read a frame from video stream" << endl;
+	}
+	flip(imgdestination, imgdestination, 1); //flip horizontally
+	return imgdestination;
+}
+
+bool blocksokay(vector<int> blocksmaxpixindex, int maxpossiblepixelindex)
+{
+	if (blocksmaxpixindex.size() < 1) { return false; }
+	else
+	{
+		for (int i = 0; i < blocksmaxpixindex.size(); ++i) //for each line
+		{
+			int valinquestion = blocksmaxpixindex[i]; //this is the coord we're examining
+			if ((0 < valinquestion) //it needs to be greater than 0
+				&& (valinquestion < blocksmaxpixindex[i + 1]) //and less than the next coord
+				&& (valinquestion < maxpossiblepixelindex)) //and less than the last (boundary) pixel
+			{
+				return true; //so far so good
+				//cout << "xvals good...";
+			}
+			else
+			{
+				return false; //uh oh, this  val has a problem
+				//cout << "xvals bad...";
+			}
+		}
+	}
+}
+
+using namespace cv;
+
+//calibrate the grid
+int calibrateblocks(vector<int> &xblocksmaxpixindexi, vector<int> &yblocksmaxpixindexj, vector<int> &colorrangevector, int xlastpix, int ylastpix)
+{
+
+	namedWindow("Active Color Range", CV_WINDOW_AUTOSIZE); //create a window called "Active Color Range"
+	//create trackbars in the window so user can tweak those values:
+	cvCreateTrackbar("LowG", "Active Color Range", &colorrangevector[0], 255);
+	cvCreateTrackbar("HighG", "Active Color Range", &colorrangevector[1], 255);
+	cvCreateTrackbar("LowB", "Active Color Range", &colorrangevector[2], 255);
+	cvCreateTrackbar("HighB", "Active Color Range", &colorrangevector[3], 255);
+	cvCreateTrackbar("LowR", "Active Color Range", &colorrangevector[4], 255);
+	cvCreateTrackbar("HighR", "Active Color Range", &colorrangevector[5], 255);
+
+	Mat imgframe;
+	chrono::high_resolution_clock::time_point starttime = chrono::high_resolution_clock::now();
+	while ((chrono::duration_cast<chrono::duration<double> > (chrono::high_resolution_clock::now() - starttime)).count() < 4.0)
+	{
+		getvideoframe(imgframe);
+		imshow("Calibration Standby...", imgframe); //show the image
+	}
+
+	int maxofxmin, minofxmax, maxofymin, minofymax;
+
+	while ((chrono::duration_cast<chrono::duration<double> > (chrono::high_resolution_clock::now() - starttime)).count() < 10.0)
+	{
+		getvideoframe(imgframe);
+
+		int xmin, xmax, ymin, ymax;
+		for (int y = 0; y<imgframe.rows; y++)
+		{
+			for (int x = 0; x<imgframe.cols; x++)
+			{
+				Vec3b color = imgframe.at<Vec3b>(Point(x, y)); //get pixel
+				if (colorinGBRrange(color, colorrangevector))
+				{
+					if ((x == 0) && (y == 0))
+					{
+						xmin = x;
+						xmax = x;
+						ymin = y;
+						ymax = y;
+
+						maxofxmin = x;
+						minofxmax = x;
+						maxofymin = y;
+						minofymax = y;
+					}
+					else
+					{
+						xmin = min(xmin, x);
+						xmax = max(xmax, x);
+						ymin = min(ymin, y);
+						ymax = max(ymax, y);
+
+						maxofxmin = max(maxofxmin, xmin);
+						minofxmax = min(minofxmax, xmax);
+						maxofymin = max(maxofymin, ymin);
+						minofymax = min(minofymax, ymax);
+					}
+				}
+			}
+		}
+		Point pt1 = (xmin, ymin);
+		Point pt2 = (xmax, ymax);
+		rectangle(imgframe, pt1, pt2, Scalar(0, 255, 0), 2, 8, 0);
+
+		Point otherpt1 = (maxofxmin, maxofymin);
+		Point otherpt2 = (minofxmax, minofymax);
+		rectangle(imgframe, otherpt1, otherpt2, Scalar(0, 0, 255), 2, 8, 0);
+
+		imshow("Calibrating...", imgframe); //show the image
+		
+	}
+	
+	float xcenter = (maxofxmin + minofxmax) / 2;
+	float ycenter = (maxofymin + minofymax) / 2;
+	float xscale = (minofxmax - maxofxmin);
+	float yscale = (minofymax - maxofymin);
+
+	xblocksmaxpixindexi[0] = xcenter - .48193*xscale;
+	xblocksmaxpixindexi[1] = xcenter - .21687*xscale;
+	xblocksmaxpixindexi[2] = xcenter;
+	xblocksmaxpixindexi[3] = xcenter + .21687*xscale;
+	xblocksmaxpixindexi[4] = xcenter + .48193*xscale;
+
+	yblocksmaxpixindexj[0] = ycenter - .60667*yscale;
+	yblocksmaxpixindexj[1] = ycenter - .39333*yscale;
+	yblocksmaxpixindexj[2] = ycenter - .23333*yscale;
+	yblocksmaxpixindexj[3] = ycenter - .06267*yscale;
+	yblocksmaxpixindexj[4] = ycenter + .08667*yscale;
+	yblocksmaxpixindexj[5] = ycenter + .25733*yscale;
+	yblocksmaxpixindexj[6] = ycenter + .41733*yscale;
+
+	if (blocksokay(xblocksmaxpixindexi, xlastpix) && blocksokay(yblocksmaxpixindexj, ylastpix))
+	{
+		return 0;
+	}
+	else return -1;
+}
+
+
+
 int main(int argc, char** argv)
 {
 	VideoCapture cap(0); //capture the video from web cam
@@ -68,13 +248,8 @@ int main(int argc, char** argv)
 	int iHighB = 50;
 	int iLowR = 100;
 	int iHighR = 255;
-	//create trackbars in the window so user can tweak those values:
-	cvCreateTrackbar("LowG", "Active Color Range", &iLowG, 255);
-	cvCreateTrackbar("HighG", "Active Color Range", &iHighG, 255);
-	cvCreateTrackbar("LowB", "Active Color Range", &iLowB, 255); 
-	cvCreateTrackbar("HighB", "Active Color Range", &iHighB, 255);
-	cvCreateTrackbar("LowR", "Active Color Range", &iLowR, 255); 
-	cvCreateTrackbar("HighR", "Active Color Range", &iHighR, 255);
+	//create vector to store these nicely
+	vector<int> GBRrange = { iLowG, iHighG, iLowB, iHighB, iLowR, iHighR };
 
 	//variables depending on the size of the image, for now just enter the right size manually
 	int numofpixwide = 640;
@@ -88,7 +263,7 @@ int main(int argc, char** argv)
 
 	//how many lines will be drawn through the middle of the image (how many cuts will make)?
 	int numoflinesx = 5;
-	int numoflinesy = 5;
+	int numoflinesy = 7;
 	//the number of regions in the image determined by these lines is that plus 1
 	int numofblocksx = numoflinesx + 1;
 	int numofblocksy = numoflinesy + 1;
@@ -103,7 +278,7 @@ int main(int argc, char** argv)
 	tweak the number of lines in the middle and I'll add that one on after they do so.*/
 	std::vector<int> xblocksmaxpixindex; xblocksmaxpixindex.resize(numoflinesx);
 	std::vector<int> yblocksmaxpixindex; yblocksmaxpixindex.resize(numoflinesy);
-	//create windows for gridline trackbars
+	/*//create windows for gridline trackbars
 	namedWindow("Grid Control x", CV_WINDOW_AUTOSIZE); //create a window called "Grid Control"
 	namedWindow("Grid Control y", CV_WINDOW_AUTOSIZE); //create a window called "Grid Control"
 	//create trackbars so user can tweak the grid placements for the middle lines.
@@ -119,11 +294,10 @@ int main(int argc, char** argv)
 		yblocksmaxpixindex[jj] = (jj + 1) * ylastpixindex / (numoflinesy + 1);
 		cvCreateTrackbar(label.c_str(), "Grid Control y", &yblocksmaxpixindex[jj], ylastpixindex);
 	}
+	*/
 	//add on the final max pix index - the one at the boundary of the image.
-	xblocksmaxpixindex.push_back(xlastpixindex);
-	yblocksmaxpixindex.push_back(ylastpixindex);
-	//will need to figure out later if these grid placements are okay
-	bool xvalslegit, yvalslegit;
+	xblocksmaxpixindex.push_back(int(xlastpixindex));
+	yblocksmaxpixindex.push_back(int(ylastpixindex));
 	
 	//whether a region (I'm calling them blocks) is active depends on the number of pixels active.
 	//two ways to calculate, if either conditions met it counts as activated: 
@@ -138,16 +312,8 @@ int main(int argc, char** argv)
 	//when a block is activated, that should correspond to a key press.
 	vector<vector <int>> keymaps;
 	//make this the same size as the grid of blocks
-	for (int i = 0; i < numofblocksx; ++i)
-	{
-		vector <int> tmp;
-		keymaps.push_back(tmp);
-		for (int j = 0; j < numofblocksy; ++j)
-		{
-			keymaps[i].push_back(-1); //fill it in with -1s
-		}
-	}
-	//set the values
+	makevectorvector(numofblocksx, numofblocksy, -1, keymaps);
+	/*//set the values
 	keymaps[0][2] = 0x41; //a right
 	keymaps[2][0] = 0x57; //w up
 	keymaps[3][0] = 0x57; //w up
@@ -155,21 +321,22 @@ int main(int argc, char** argv)
 	keymaps[2][5] = 0x53; //s down
 	keymaps[3][5] = 0x53; //s down
 
-
-
-
+	*/
+	
+	//Calibrate x and y gridlines automatically
+	int n = -1;
+	while (n == -1)
+	{
+		n = calibrateblocks(xblocksmaxpixindex, yblocksmaxpixindex, GBRrange, xlastpixindex, ylastpixindex);
+	}
 
 	//the processing
 	while (true)
 	{
 		//capture the frame
 		Mat imgOriginal;
-		bool bSuccess = cap.read(imgOriginal); // read a new frame from video
-		if (!bSuccess) //if not success, break loop
-		{
-			cout << "Cannot read a frame from video stream" << endl;
-			break;
-		}
+		getvideoframe(imgOriginal);
+
 		//process the frame and store in imgProcd
 		Mat imgProcd;
 		try {
@@ -182,58 +349,12 @@ int main(int argc, char** argv)
 			CV_Assert(imgOriginal.type() == DataType<VT>::type);
 			Size size = imgOriginal.size(); //set the size of imgProcd to the size of the original
 			imgProcd.create(size, imgOriginal.type());
-			flip(imgOriginal, imgOriginal, 1);  //flip horizontally
-
-
-			//check if the x lines are valid
-			for (int i = 0; i < numoflinesx; ++i) //for each x line
-			{
-				int xvalinquestion = xblocksmaxpixindex[i]; //this is the x coord we're examining
-				if ((0 < xvalinquestion) //it needs to be greater than 0
-					&& (xvalinquestion < xblocksmaxpixindex[i + 1]) //and less than the next x coord
-					&& (xvalinquestion < xlastpixindex)) //and less than the last (boundary) pixel
-				{
-					xvalslegit = true; //so far so good
-					//cout << "xvals good...";
-				}
-				else
-				{
-					xvalslegit = false; //uh oh, this x val has a problem
-					//cout << "xvals bad...";
-					break;  //break the loop and leave it at false
-				}
-			}
-			//check if yvals good, same as above
-			for (int j = 0; j < numoflinesx; ++j)
-			{
-				int yvalinquestion = yblocksmaxpixindex[j];
-				if ((0 < yvalinquestion) && (yvalinquestion < yblocksmaxpixindex[j + 1]) && (yvalinquestion < ylastpixindex))
-				{
-					yvalslegit = true;
-					//cout << "yvals good...";
-				}
-				else
-				{
-					yvalslegit = false;
-					//cout << "yvals bad...";
-					break;
-				}
-			}
-			//cout << endl;
 
 
 			//counters: an array thing that counts how many pixels are active in each block
 			vector<vector <int>> counters;
 			//make this the same size as the grid of blocks
-			for (int i = 0; i < numofblocksx; ++i)
-			{
-				vector <int> tmp;
-				counters.push_back(tmp);
-				for (int j = 0; j < numofblocksy; ++j)
-				{
-					counters[i].push_back(0); //fill it in with 0s
-				}
-			}
+			makevectorvector(numofblocksx, numofblocksy, 0, counters);
 			
 			//go through each pixel and see if it is within the target color range - if so,
 			//add one to the counter of the block it lies in.
@@ -242,12 +363,9 @@ int main(int argc, char** argv)
 				for (int x = 0; x<imgOriginal.cols; x++)
 				{
 					Vec3b color = imgOriginal.at<Vec3b>(Point(x, y)); //get pixel
-					if ((color[0] >= iLowG) && (color[0] <= iHighG) //if the color's in the g range
-						&& (color[1] >= iLowB) && (color[1] <= iHighB) //and the b range
-						&& (color[2] >= iLowR) && (color[2] <= iHighR)) //and the r range
+					if (colorinGBRrange(color, GBRrange))
 					{
 						color[0] = 0; color[1] = 0; color[2] = 255; //make it totally red
-						if (xvalslegit && yvalslegit) //if the grid is okay, add it to the counters
 						{
 							int xcounterindex, ycounterindex;
 							for (int i = 0; i < numoflinesx + 1; ++i) //one by one, for each line
@@ -270,18 +388,8 @@ int main(int argc, char** argv)
 			//active block matrix, to tell true or false whether it's 'active':
 			vector<vector <bool>> activeblocks;
 			//set the size to the number of blocks
-			for (int i = 0; i < numofblocksx; ++i)
-			{
-				vector <bool> tmp;
-				activeblocks.push_back(tmp);
-				for (int j = 0; j < numofblocksy; ++j)
-				{
-					activeblocks[i].push_back(false); //by default, all are false (not active)
-				}
-			}
+			makevectorvector(numofblocksx, numofblocksy, false, activeblocks);
 
-			//calculate which are active
-			if (xvalslegit && yvalslegit) //if the lines' xvals and yvals are ok
 			{
 				//iterate through all the blocks
 				for (int xindex = 0; xindex < numofblocksx; ++xindex)
