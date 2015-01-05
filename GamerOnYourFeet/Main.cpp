@@ -6,15 +6,19 @@
 #include <windows.h>
 #include <chrono>
 
+
+using namespace std; 
 using namespace cv;
-using namespace std;
+
+//Global
+VideoCapture *pcap; //capture the video from web cam
 
 //make a vector of vectors and fill each entry with a certain element
-void makevectorvector(int width, int height, int fillwiththis, vector<vector<int>> &destinationvectorvector)
+void makevectorvector(int width, int height, int fillwiththis, vector<vector<int> > &destinationvectorvector)
 {
 	for (int i = 0; i < width; ++i)
 	{
-		vector <int> tmp;
+		vector<int> tmp;
 		destinationvectorvector.push_back(tmp);
 		for (int j = 0; j < height; ++j)
 		{
@@ -22,7 +26,7 @@ void makevectorvector(int width, int height, int fillwiththis, vector<vector<int
 		}
 	}
 }
-void makevectorvector(int width, int height, bool fillwiththis, vector<vector<bool>> &destinationvectorvector)
+void makevectorvector(int width, int height, bool fillwiththis, vector<vector<bool> > &destinationvectorvector)
 {
 	for (int i = 0; i < width; ++i)
 	{
@@ -78,7 +82,7 @@ void releasekey(int keycode)
 }
 
 //check if a color is in the range
-bool colorinGBRrange(Vec3b color, vector<int> rangevector)
+bool colorinBGRrange(Vec3b color, vector<int> rangevector)
 {
 	if ((color[0] >= rangevector[0]) && (color[0] <= rangevector[1]) //if the color's in the g range
 		&& (color[1] >= rangevector[2]) && (color[1] <= rangevector[3]) //and the b range
@@ -86,20 +90,20 @@ bool colorinGBRrange(Vec3b color, vector<int> rangevector)
 		return true;
 	else return false;
 }
-Mat getvideoframe(Mat &imgdestination)
+void getvideoframe(Mat &img1)
 {
-	VideoCapture cap(0); //capture the video from web cam
-	if (!cap.isOpened())  // if not success
+	if (!pcap->isOpened())  // if not success
 	{
-		cout << "Cannot open the web cam" << endl;
+		cerr << "Cannot open the web cam" << endl;
+		exit(-1);
 	}
-	bool bSuccess = cap.read(imgdestination); // read a new frame from video
+	bool bSuccess = pcap->read(img1); // read a new frame from video
 	if (!bSuccess) //if not success
 	{
-		cout << "Cannot read a frame from video stream" << endl;
+		cerr << "Cannot read a frame from video stream" << endl;
+		exit(-1);
 	}
-	flip(imgdestination, imgdestination, 1); //flip horizontally
-	return imgdestination;
+	//flip(img1, img1, 1); //flip horizontally
 }
 
 bool blocksokay(vector<int> blocksmaxpixindex, int maxpossiblepixelindex)
@@ -115,132 +119,156 @@ bool blocksokay(vector<int> blocksmaxpixindex, int maxpossiblepixelindex)
 				&& (valinquestion < maxpossiblepixelindex)) //and less than the last (boundary) pixel
 			{
 				return true; //so far so good
-				//cout << "xvals good...";
+				//cerr << "xvals good...";
 			}
 			else
 			{
 				return false; //uh oh, this  val has a problem
-				//cout << "xvals bad...";
+				//cerr << "xvals bad...";
 			}
 		}
 	}
+	return false;
 }
 
-using namespace cv;
 
 //calibrate the grid
 int calibrateblocks(vector<int> &xblocksmaxpixindexi, vector<int> &yblocksmaxpixindexj, vector<int> &colorrangevector, int xlastpix, int ylastpix)
 {
-
-	namedWindow("Active Color Range", CV_WINDOW_AUTOSIZE); //create a window called "Active Color Range"
+	
+	char * wname = "Active Color Range";
+	namedWindow(wname, CV_WINDOW_AUTOSIZE); //create a window called "Active Color Range"
 	//create trackbars in the window so user can tweak those values:
-	cvCreateTrackbar("LowG", "Active Color Range", &colorrangevector[0], 255);
-	cvCreateTrackbar("HighG", "Active Color Range", &colorrangevector[1], 255);
-	cvCreateTrackbar("LowB", "Active Color Range", &colorrangevector[2], 255);
-	cvCreateTrackbar("HighB", "Active Color Range", &colorrangevector[3], 255);
-	cvCreateTrackbar("LowR", "Active Color Range", &colorrangevector[4], 255);
-	cvCreateTrackbar("HighR", "Active Color Range", &colorrangevector[5], 255);
+	createTrackbar("LowG", wname, &(colorrangevector[0]), 255);
+	createTrackbar("HighG", wname, &(colorrangevector[1]), 255);
+	createTrackbar("LowB", wname, &(colorrangevector[2]), 255);
+	createTrackbar("HighB", wname, &(colorrangevector[3]), 255);
+	createTrackbar("LowR", wname, &(colorrangevector[4]), 255);
+	createTrackbar("HighR", wname, &(colorrangevector[5]), 255);
 
 	Mat imgframe;
-	chrono::high_resolution_clock::time_point starttime = chrono::high_resolution_clock::now();
-	while ((chrono::duration_cast<chrono::duration<double> > (chrono::high_resolution_clock::now() - starttime)).count() < 4.0)
+	int loops = 0;
+	auto starttime = chrono::system_clock::now();
+	while (chrono::system_clock::now() < starttime + chrono::seconds(1))
 	{
 		getvideoframe(imgframe);
-		imshow("Calibration Standby...", imgframe); //show the image
-	}
+		string s("Processed Image");
 
-	int maxofxmin, minofxmax, maxofymin, minofymax;
-
-	while ((chrono::duration_cast<chrono::duration<double> > (chrono::high_resolution_clock::now() - starttime)).count() < 10.0)
-	{
-		getvideoframe(imgframe);
-
-		int xmin, xmax, ymin, ymax;
 		for (int y = 0; y<imgframe.rows; y++)
 		{
 			for (int x = 0; x<imgframe.cols; x++)
 			{
 				Vec3b color = imgframe.at<Vec3b>(Point(x, y)); //get pixel
-				if (colorinGBRrange(color, colorrangevector))
+				if (colorinBGRrange(color, colorrangevector))
 				{
-					if ((x == 0) && (y == 0))
-					{
-						xmin = x;
-						xmax = x;
-						ymin = y;
-						ymax = y;
+					color[0] = 0;
+					color[1] = 0;
+					color[2] = 255;
+					imgframe.at<Vec3b>(Point(x, y)) = color;
+				}
+			}
+		}
 
-						maxofxmin = x;
-						minofxmax = x;
-						maxofymin = y;
-						minofymax = y;
-					}
-					else
-					{
-						xmin = min(xmin, x);
-						xmax = max(xmax, x);
-						ymin = min(ymin, y);
-						ymax = max(ymax, y);
+		imshow(s, imgframe); //show the image
+		//cerr << s << " " << loops++ << endl;
+		waitKey(1);
+	}
 
-						maxofxmin = max(maxofxmin, xmin);
-						minofxmax = min(minofxmax, xmax);
-						maxofymin = max(maxofymin, ymin);
-						minofymax = min(minofymax, ymax);
-					}
+	int maxofxmin = -1;
+	int minofxmax = -1;
+	int maxofymin = -1; 
+	int minofymax = -1;
+
+	Mat imgframe2;
+	starttime = chrono::system_clock::now();
+	while (chrono::system_clock::now() < starttime + chrono::seconds(4))
+	{
+		getvideoframe(imgframe2);
+
+		int xmin = -1;
+		int xmax = -1;
+		int ymin = -1;
+		int ymax = -1;
+		for (int y = 0; y<imgframe2.rows; y++)
+		{
+			for (int x = 0; x<imgframe2.cols; x++)
+			{
+				Vec3b color = imgframe2.at<Vec3b>(Point(x, y)); //get pixel
+				if (colorinBGRrange(color, colorrangevector))
+				{
+					color[0] = 0;
+					color[1] = 0;
+					color[2] = 255;
+					imgframe2.at<Vec3b>(Point(x, y)) = color;
+
+					xmin = ((xmin == -1) ? x : min(xmin, x));
+					xmax = ((xmax == -1) ? x : max(xmax, x));
+					ymin = ((ymin == -1) ? y : min(ymin, y));
+					ymax = ((ymax == -1) ? y : max(ymax, y));
+
+					maxofxmin = ((maxofxmin == -1) ? xmin : max(maxofxmin, xmin));
+					minofxmax = ((minofxmax == -1) ? xmax : min(minofxmax, xmax));
+					maxofymin = ((maxofymin == -1) ? ymin : max(maxofymin, ymin));
+					minofymax = ((minofymax == -1) ? ymax : min(minofymax, ymax));
 				}
 			}
 		}
 		Point pt1 = (xmin, ymin);
 		Point pt2 = (xmax, ymax);
-		rectangle(imgframe, pt1, pt2, Scalar(0, 255, 0), 2, 8, 0);
+		rectangle(imgframe2, pt1, pt2, Scalar(0, 255, 0), 2, 8, 0);
 
 		Point otherpt1 = (maxofxmin, maxofymin);
 		Point otherpt2 = (minofxmax, minofymax);
-		rectangle(imgframe, otherpt1, otherpt2, Scalar(0, 0, 255), 2, 8, 0);
+		rectangle(imgframe2, otherpt1, otherpt2, Scalar(0, 0, 255), 2, 8, 0);
 
-		imshow("Calibrating...", imgframe); //show the image
-		
+		imshow("Processed Image", imgframe2); //show the image
+		waitKey(1);
 	}
 	
-	float xcenter = (maxofxmin + minofxmax) / 2;
-	float ycenter = (maxofymin + minofymax) / 2;
-	float xscale = (minofxmax - maxofxmin);
-	float yscale = (minofymax - maxofymin);
+	float xcenter = float((maxofxmin + minofxmax) / 2.0);
+	float ycenter = float((maxofymin + minofymax) / 2.0);
+	float xscale = float(minofxmax - maxofxmin);
+	float yscale = float(minofymax - maxofymin);
 
-	xblocksmaxpixindexi[0] = xcenter - .48193*xscale;
-	xblocksmaxpixindexi[1] = xcenter - .21687*xscale;
-	xblocksmaxpixindexi[2] = xcenter;
-	xblocksmaxpixindexi[3] = xcenter + .21687*xscale;
-	xblocksmaxpixindexi[4] = xcenter + .48193*xscale;
+	xblocksmaxpixindexi[0] = int(xcenter - .48193*xscale);
+	xblocksmaxpixindexi[1] = int(xcenter - .21687*xscale);
+	xblocksmaxpixindexi[2] = int(xcenter);
+	xblocksmaxpixindexi[3] = int(xcenter + .21687*xscale);
+	xblocksmaxpixindexi[4] = int(xcenter + .48193*xscale);
 
-	yblocksmaxpixindexj[0] = ycenter - .60667*yscale;
-	yblocksmaxpixindexj[1] = ycenter - .39333*yscale;
-	yblocksmaxpixindexj[2] = ycenter - .23333*yscale;
-	yblocksmaxpixindexj[3] = ycenter - .06267*yscale;
-	yblocksmaxpixindexj[4] = ycenter + .08667*yscale;
-	yblocksmaxpixindexj[5] = ycenter + .25733*yscale;
-	yblocksmaxpixindexj[6] = ycenter + .41733*yscale;
+	yblocksmaxpixindexj[0] = int(ycenter - .60667*yscale);
+	yblocksmaxpixindexj[1] = int(ycenter - .39333*yscale);
+	yblocksmaxpixindexj[2] = int(ycenter - .23333*yscale);
+	yblocksmaxpixindexj[3] = int(ycenter - .06267*yscale);
+	yblocksmaxpixindexj[4] = int(ycenter + .08667*yscale);
+	yblocksmaxpixindexj[5] = int(ycenter + .25733*yscale);
+	yblocksmaxpixindexj[6] = int(ycenter + .41733*yscale);
 
 	if (blocksokay(xblocksmaxpixindexi, xlastpix) && blocksokay(yblocksmaxpixindexj, ylastpix))
 	{
+		cerr << "calibration ok";
 		return 0;
 	}
-	else return -1;
+	else
+	{
+		cerr << "calibration failed: " << maxofxmin << ", " << minofxmax << "; " << maxofymin << ", " << minofymax;
+		return -1;
+	}
 }
 
 
 
 int main(int argc, char** argv)
 {
-	VideoCapture cap(0); //capture the video from web cam
+	VideoCapture cap(0);
+	pcap = &cap; //open web cam
 
-	if (!cap.isOpened())  // if not success, exit program
+	if (!pcap->isOpened())  // if not success, exit program
 	{
-		cout << "Cannot open the web cam" << endl;
+		cerr << "Cannot open the web cam" << endl;
 		return -1;
 	}
 
-	namedWindow("Active Color Range", CV_WINDOW_AUTOSIZE); //create a window called "Active Color Range"
 	//RGB max and min values:
 	int iLowG = 0;
 	int iHighG = 50;
@@ -249,7 +277,7 @@ int main(int argc, char** argv)
 	int iLowR = 100;
 	int iHighR = 255;
 	//create vector to store these nicely
-	vector<int> GBRrange = { iLowG, iHighG, iLowB, iHighB, iLowR, iHighR };
+	vector<int> BGRrange = { iLowG, iHighG, iLowB, iHighB, iLowR, iHighR };
 
 	//variables depending on the size of the image, for now just enter the right size manually
 	int numofpixwide = 640;
@@ -327,7 +355,7 @@ int main(int argc, char** argv)
 	int n = -1;
 	while (n == -1)
 	{
-		n = calibrateblocks(xblocksmaxpixindex, yblocksmaxpixindex, GBRrange, xlastpixindex, ylastpixindex);
+		n = calibrateblocks(xblocksmaxpixindex, yblocksmaxpixindex, BGRrange, xlastpixindex, ylastpixindex);
 	}
 
 	//the processing
@@ -336,7 +364,11 @@ int main(int argc, char** argv)
 		//capture the frame
 		Mat imgOriginal;
 		getvideoframe(imgOriginal);
+		//imshow("Calibrating...", imgOriginal); //show the image
 
+		//Sleep(1000);
+
+#ifdef _SKIP_
 		//process the frame and store in imgProcd
 		Mat imgProcd;
 		try {
@@ -363,7 +395,7 @@ int main(int argc, char** argv)
 				for (int x = 0; x<imgOriginal.cols; x++)
 				{
 					Vec3b color = imgOriginal.at<Vec3b>(Point(x, y)); //get pixel
-					if (colorinGBRrange(color, GBRrange))
+					if (colorinBGRrange(color, BGRrange))
 					{
 						color[0] = 0; color[1] = 0; color[2] = 255; //make it totally red
 						{
@@ -403,7 +435,7 @@ int main(int argc, char** argv)
 						int maxy = (yblocksmaxpixindex[yindex]);
 						//find the area of the block for thresholdpercent purposes
 						int areaofblock = ((maxx - minx) * (maxy - miny));
-						if (areaofblock == 0) { areaofblock = 1; cout << "area is zero! \n"; } //if zero, that shouldn't happen, set to 1
+						if (areaofblock == 0) { areaofblock = 1; cerr << "area is zero! \n"; } //if zero, that shouldn't happen, set to 1
 						int numactivepix = counters[xindex][yindex]; //get the number of active pixels that was counted up
 						//is this block active?
 						bool isactive =
@@ -425,27 +457,29 @@ int main(int argc, char** argv)
 						if (isactive) 
 						{
 							activeblocks[xindex][yindex] = true; 
-							cout << "("; cout << xindex; cout << ", "; cout << yindex; cout << "), "; //debug
+							cerr << "(" << xindex << ", " << yindex << "), "; //debug
 							//press the right key
 							presskey(keymaps[xindex][yindex]);
 						}
 						else releasekey(keymaps[xindex][yindex]);
 					}
 				}
-				cout << endl; //debug
+				cerr << endl; //debug
 			}
 		}
 		catch (cv::Exception & err) {
 			cerr << err.what() << endl;
 		}
 
-		imshow("Proccessed Image", imgProcd); //show the combined image
+#endif
+		//imshow("Proccessed Image", imgProcd); //show the combined image
+		imshow("Proccessed Image", imgOriginal); //show the combined image
 
 		
 		//to exit
 		if (waitKey(30) == 27) //wait for 'esc' key press for 30ms. If 'esc' key is pressed, break loop
 		{
-			cout << "esc key is pressed by user" << endl;
+			cerr << "esc key is pressed by user" << endl;
 			break;
 		}
 	}
